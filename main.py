@@ -5,6 +5,9 @@ import logging
 import time
 from dotenv import load_dotenv
 import requests
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
 
 # Load environment variables
 def setup_env():
@@ -95,23 +98,28 @@ def post_to_facebook(page_id: str, access_token: str, message: str, link: str = 
                 logger.error("Max retries reached. Could not post to Facebook.")
                 raise
 
-# Main execution
-if __name__ == "__main__":
-    # Setup
-    page_id, access_token = setup_env()
-    logger = setup_logging()
-    database = load_database()
+# FastAPI setup
+app = FastAPI()
+page_id, access_token = setup_env()
+logger = setup_logging()
+database = load_database()
 
-    # Get content
-    item = get_random_chapter(database)
-    message = (
-        f"{item['title']}, {item['author']}\n"
-        f"{item['chapter_name']}\n\n"
-        f"{item['text']}"
-    )
-    link = item.get("link")
-    # Post
+class PostResponse(BaseModel):
+    post_id: str
+
+@app.post("/post", response_model=PostResponse)
+def create_post():
+    """Fetch a random chapter and publish to Facebook."""
     try:
-        post_to_facebook(page_id, access_token, message, link, logger=logger)
+        item = get_random_chapter(database)
+        message = (
+            f"{item['title']}, {item['author']}\n"
+            f"{item['chapter_name']}\n\n"
+            f"{item['text']}"
+        )
+        result = post_to_facebook(page_id, access_token, message, item.get("link"), logger=logger)
+        return {"post_id": result.get("id")}  # type: ignore
     except Exception as e:
         logger.error(f"Failed to publish post: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
